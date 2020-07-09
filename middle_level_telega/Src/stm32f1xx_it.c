@@ -45,7 +45,6 @@
 extern uint8_t buf_drv1[5];
 extern uint8_t buf_drv2[5];
 
-extern int uart_drv_send;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/

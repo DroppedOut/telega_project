@@ -56,7 +56,6 @@ float speed_drv2 =0.0f;
 uint8_t buf_drv1[BUF_SIZE_DRV];							// float speed
 uint8_t buf_drv2[BUF_SIZE_DRV];							// float speed
 uint8_t buf_drv_send[BUF_SIZE_DRV_SEND];					// uint8_t code + float speed
-int uart_uplevel_send, uart_drv_send;
 
 uint8_t buf_drv_decoded[BUF_SIZE_DRV - 2];
 uint8_t buf_drv_send_decoded[BUF_SIZE_DRV_SEND - 2];
@@ -90,7 +89,7 @@ void cmd_vel_callback( const geometry_msgs::Twist& msg){
 
 ros::NodeHandle nh;
 
-ros::Subscriber<geometry_msgs::Twist> sub("cmd_vel", cmd_vel_callback);
+ros::Subscriber<geometry_msgs::Twist> sub("cmd_vel", cmd_vel_callback,1);
 /* USER CODE END 0 */
 
 /**
@@ -132,42 +131,38 @@ int main(void)
   nh.initNode();
   nh.subscribe(sub);
 
-  int read_freq = 1000.0 / 50; //20hz
-  int read_last = HAL_GetTick();
+  int send_freq = 1000.0 / 50; //20hz
+  int send_last = HAL_GetTick();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
 	  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
       if (nh.connected())
       {
-          if(HAL_GetTick() - read_last > read_freq)
+          if(HAL_GetTick() - send_last > send_freq)
           {
         	//for odom
-            read_last = HAL_GetTick();
+            send_last = HAL_GetTick();
           }
       }
 
       nh.spinOnce();
 
       	//what happens, if we send vel more frequently?
-		if (speed_drv1!=0.0 || speed_drv2!=0.0)
-		{
-			uart_drv_send = 0;
+		buf_drv_send_decoded[0] = 'v';
+		memcpy(buf_drv_send_decoded + 1, &speed_drv1, sizeof(float));
+		cobs_encode(buf_drv_send_decoded, BUF_SIZE_DRV_SEND - 2, buf_drv_send);
+		HAL_UART_Transmit(&huart2, buf_drv_send, BUF_SIZE_DRV_SEND, 0x0FFF);
 
-			buf_drv_send_decoded[0] = 'v';
-			memcpy(buf_drv_send_decoded + 1, &speed_drv1, sizeof(float));
-			cobs_encode(buf_drv_send_decoded, BUF_SIZE_DRV_SEND - 2, buf_drv_send);
-			HAL_UART_Transmit(&huart2, buf_drv_send, BUF_SIZE_DRV_SEND, 0x0FFF);
+		buf_drv_send_decoded[0] = 'v';
+		memcpy(buf_drv_send_decoded + 1, &speed_drv2, sizeof(float));
+		cobs_encode(buf_drv_send_decoded, BUF_SIZE_DRV_SEND - 2, buf_drv_send);
+		HAL_UART_Transmit(&huart3, buf_drv_send, BUF_SIZE_DRV_SEND, 0x0FFF);
 
-			buf_drv_send_decoded[0] = 'v';
-			memcpy(buf_drv_send_decoded + 1, &speed_drv2, sizeof(float));
-			cobs_encode(buf_drv_send_decoded, BUF_SIZE_DRV_SEND - 2, buf_drv_send);
-			HAL_UART_Transmit(&huart3, buf_drv_send, BUF_SIZE_DRV_SEND, 0x0FFF);
-		}
+    /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
