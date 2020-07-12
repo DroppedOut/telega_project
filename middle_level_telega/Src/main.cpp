@@ -24,7 +24,12 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <ros.h>
+#include <ros/time.h>
+#include <tf/tf.h>
+#include <tf/transform_broadcaster.h>
+#include <nav_msgs/Odometry.h>
 #include <geometry_msgs/Twist.h>
+#include <std_msgs/Int32.h>
 #include "cobs.h"
 #include <string.h>
 /* USER CODE END Includes */
@@ -41,7 +46,6 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-//
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -62,6 +66,15 @@ uint8_t buf_drv_decoded[BUF_SIZE_DRV - 2];
 uint8_t buf_drv_send_decoded[BUF_SIZE_DRV_SEND - 2];
 
 uint8_t code;
+
+double x = 0.0;
+double y = 0.0;
+double th = 0.0;
+
+double vx = 0.0;
+double vy = 0.0;
+double vth = 0.0;
+
 
 /* USER CODE END PV */
 
@@ -90,6 +103,12 @@ void cmd_vel_callback( const geometry_msgs::Twist& msg){
 
 ros::NodeHandle nh;
 
+nav_msgs::Odometry odom;
+ros::Publisher odom_pub("odom", &odom);
+tf::TransformBroadcaster odom_broadcaster;
+
+ros::Time current_time = nh.now();
+ros::Time last_time = nh.now();
 ros::Subscriber<geometry_msgs::Twist> sub("cmd_vel", cmd_vel_callback,1);
 /* USER CODE END 0 */
 
@@ -97,6 +116,7 @@ ros::Subscriber<geometry_msgs::Twist> sub("cmd_vel", cmd_vel_callback,1);
   * @brief  The application entry point.
   * @retval int
   */
+
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -131,8 +151,10 @@ int main(void)
 
   nh.initNode();
   nh.subscribe(sub);
+  nh.advertise(odom_pub);
+  odom_broadcaster.init(nh);
 
-  int send_freq = 1000.0 / 50; //20hz
+  int send_freq = 1000.0 / 100; //1hz
   int send_last = HAL_GetTick();
   /* USER CODE END 2 */
 
@@ -145,14 +167,62 @@ int main(void)
       {
           if(HAL_GetTick() - send_last > send_freq)
           {
-        	//for odom
-            send_last = HAL_GetTick();
+        	  current_time = nh.now();
+//double dt;
+        	      //compute odometry in a typical way given the velocities of the robot
+        	      double dt = (current_time.toSec() - last_time.toSec());
+        	      double delta_x = (vx * cos(th) - vy * sin(th)) * dt;
+        	      double delta_y = (vx * sin(th) + vy * cos(th)) * dt;
+        	      double delta_th = vth * dt;
+
+        	      x += delta_x;
+        	      y += delta_y;
+        	      th += delta_th;
+
+        	      //since all odometry is 6DOF we'll need a quaternion created from yaw
+        	      geometry_msgs::Quaternion odom_quat = tf::createQuaternionFromYaw(th);
+
+        	      //first, we'll publish the transform over tf
+        	      geometry_msgs::TransformStamped odom_trans;
+        	      odom_trans.header.stamp = current_time;
+        	      odom_trans.header.frame_id = "odom";
+        	      odom_trans.child_frame_id = "base_link";
+
+        	      odom_trans.transform.translation.x = x;
+        	      odom_trans.transform.translation.y = y;
+        	      odom_trans.transform.translation.z = 0.0;
+        	      odom_trans.transform.rotation = odom_quat;
+
+        	      //send the transform
+        	      odom_broadcaster.sendTransform(odom_trans);
+
+        	      //next, we'll publish the odometry message over ROS
+        	      nav_msgs::Odometry odom;
+        	      odom.header.stamp = current_time;
+        	      odom.header.frame_id = "odom";
+
+        	      //set the position
+        	      odom.pose.pose.position.x = x;
+        	      odom.pose.pose.position.y = y;
+        	      odom.pose.pose.position.z = 0.0;
+        	      odom.pose.pose.orientation = odom_quat;
+
+        	      //set the velocity
+        	      odom.child_frame_id = "base_link";
+        	      odom.twist.twist.linear.x = vx;
+        	      odom.twist.twist.linear.y = vy;
+        	      odom.twist.twist.angular.z = vth;
+
+        	      //publish the message
+        	      odom_pub.publish(&odom);
+
+        	      last_time = current_time;
+        	      send_last = HAL_GetTick();
           }
       }
 
       nh.spinOnce();
 
-      	//what happens, if we send vel more frequently?
 		buf_drv_send_decoded[0] = 'v';
 		memcpy(buf_drv_send_decoded + 1, &speed_drv1, sizeof(float));
 		cobs_encode(buf_drv_send_decoded, BUF_SIZE_DRV_SEND - 2, buf_drv_send);
