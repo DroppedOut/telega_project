@@ -42,6 +42,10 @@
 /* USER CODE BEGIN PD */
 #define BUF_SIZE_DRV			6
 #define BUF_SIZE_DRV_SEND	7
+
+#define M_PI 3.14159265358979323846
+#define WHEEL_RADIUS 0.085
+#define WHEEL_SEPARATION 0.3
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,8 +65,10 @@ float speed_drv2 =0.0f;
 uint8_t buf_drv1[BUF_SIZE_DRV];							// float speed
 uint8_t buf_drv2[BUF_SIZE_DRV];							// float speed
 uint8_t buf_drv_send[BUF_SIZE_DRV_SEND];					// uint8_t code + float speed
+int uart_drv1_ready, uart_drv2_ready;
 
-uint8_t buf_drv_decoded[BUF_SIZE_DRV - 2];
+uint8_t buf_drv_decoded1[BUF_SIZE_DRV - 2];
+uint8_t buf_drv_decoded2[BUF_SIZE_DRV - 2];
 uint8_t buf_drv_send_decoded[BUF_SIZE_DRV_SEND - 2];
 
 uint8_t code;
@@ -75,6 +81,11 @@ double vx = 0.0;
 double vy = 0.0;
 double vth = 0.0;
 
+float	old_pos_drv1,old_pos_drv2,pos_drv1, pos_drv2;
+
+double distance_per_count = (2 * 3.14159265 * WHEEL_RADIUS) / 360;
+
+double deltaRight, deltaLeft;
 
 /* USER CODE END PV */
 
@@ -165,18 +176,57 @@ int main(void)
 	  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
       if (nh.connected())
       {
+
           if(HAL_GetTick() - send_last > send_freq)
           {
         	  current_time = nh.now();
-//double dt;
-        	      //compute odometry in a typical way given the velocities of the robot
-        	      double dt = (current_time.toSec() - last_time.toSec());
-        	      double delta_x = (vx * cos(th) - vy * sin(th)) * dt;
-        	      double delta_y = (vx * sin(th) + vy * cos(th)) * dt;
-        	      double delta_th = vth * dt;
 
-        	      x += delta_x;
-        	      y += delta_y;
+        	  if (uart_drv1_ready == 1)
+				{
+					old_pos_drv1=pos_drv1;
+					cobs_decode(buf_drv1, BUF_SIZE_DRV, buf_drv_decoded1);
+					memcpy(&pos_drv1, buf_drv_decoded1, sizeof(float));
+					pos_drv1+=180;
+					deltaRight = old_pos_drv1-pos_drv1;
+					if(old_pos_drv1>300 && pos_drv1<60)
+						deltaRight = -((360-old_pos_drv1)+pos_drv1);
+					if(old_pos_drv1<60 && pos_drv1>300)
+						deltaRight = (360-pos_drv1)+old_pos_drv1;
+
+				}
+
+				if (uart_drv2_ready == 1)
+				{
+					old_pos_drv2=pos_drv2;
+					cobs_decode(buf_drv2, BUF_SIZE_DRV, buf_drv_decoded2);
+					memcpy(&pos_drv2, buf_drv_decoded2, sizeof(float));
+					pos_drv2+=180;
+					deltaLeft = pos_drv2-old_pos_drv2;
+					if(old_pos_drv2>300 && pos_drv2<60)
+						deltaRight = (360-old_pos_drv2)+pos_drv2;
+					if(old_pos_drv2<60 && pos_drv2>300)
+						deltaRight = -((360-pos_drv2)+old_pos_drv2);
+				}
+
+        	      //compute odometry in a typical way given the velocities of the robot
+    	          double dt = (current_time.toSec() - last_time.toSec());
+
+				  double v_left = (deltaLeft * distance_per_count) / dt;
+				  double v_right = (deltaRight * distance_per_count) / dt;
+
+				  vx = ((v_right + v_left) / 2);
+				  vy=0;
+				  vth = (v_right - v_left)/WHEEL_SEPARATION;
+
+        	      if (fabs(vth)>2)
+        	    	 vth=0;
+
+        	      double delta_x = (vx * cos(th)) * dt;
+        	      double delta_y = (vx * sin(th)) * dt;
+        	      double delta_th =vth * dt;
+
+        	      x -= delta_x;
+        	      y -= delta_y;
         	      th += delta_th;
 
         	      //since all odometry is 6DOF we'll need a quaternion created from yaw
@@ -232,6 +282,8 @@ int main(void)
 		memcpy(buf_drv_send_decoded + 1, &speed_drv2, sizeof(float));
 		cobs_encode(buf_drv_send_decoded, BUF_SIZE_DRV_SEND - 2, buf_drv_send);
 		HAL_UART_Transmit(&huart3, buf_drv_send, BUF_SIZE_DRV_SEND, 0x0FFF);
+
+
 
     /* USER CODE END WHILE */
     /* USER CODE BEGIN 3 */

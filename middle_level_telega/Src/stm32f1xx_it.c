@@ -44,6 +44,8 @@
 /* USER CODE BEGIN PV */
 extern uint8_t buf_drv1[5];
 extern uint8_t buf_drv2[5];
+extern int uart_drv1_ready;
+extern int uart_drv2_ready;
 
 /* USER CODE END PV */
 
@@ -259,6 +261,7 @@ void USART2_IRQHandler(void)
 		if (buf_drv1[counter] == 0)
 		{
 			counter  = 0;
+			uart_drv1_ready = 1;
 			return ;
 		}
 		counter++;
@@ -285,6 +288,7 @@ void USART3_IRQHandler(void)
 		if (buf_drv2[counter] == 0)
 		{
 			counter  = 0;
+			uart_drv2_ready = 1;
 			return ;
 		}
 		counter++;
